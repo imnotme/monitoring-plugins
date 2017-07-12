@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Check for missing parameters
 YUMCHK=$(yum check-update)
 case $? in
 0)
