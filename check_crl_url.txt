@@ -1,0 +1,126 @@
+#!/bin/bash
+# By: Abinadi Rendon
+# Version: 0.2
+# usage: ./check_crl_url -U <url> -w <days> -c <days>
+#
+# Required Packages: curl, openssl
+# 
+# Update v0.2 2013-07-16: 
+# - Fixed issue with warning and crit day count behavior
+#
+# Exit 0 (OK)
+# Exit 1 (WARN)
+# Exit 2 (CRIT)
+# Exit 3 (UNKNOWN)
+
+# Defaults
+WARN_DAYS=15
+CRIT_DAYS=10
+
+USAGE="Usage: $0 -U <url> -w <days> -c <days>"
+
+while getopts ":U:u:w:c:" optname
+do
+	case "$optname" in
+		"U")
+			URL=$OPTARG
+		;;
+		"w")
+			WARN_DAYS=$OPTARG
+		;;
+		"c")
+			CRIT_DAYS=$OPTARG
+		;;
+		"u")
+			echo $USAGE
+			exit 1
+		;;
+		"?")
+			ERROR=1
+			echo "$0: Unknown option $OPTARG"
+		;;
+		*)
+			ERROR=1
+			echo "$0: Unknown error while processing options"
+		;;
+	esac
+done
+
+if [ -z $URL ];
+then
+	ERROR=1
+fi
+
+if [ "$CRIT_DAYS" -gt "$WARN_DAYS" ];
+then
+	ERROR=1
+fi
+
+if [ "$ERROR" == "1" ];
+then
+	echo "$0: Could not parse arguments"
+	echo $USAGE
+	exit 2
+fi
+
+NOW=`date +%s`
+
+# CRL Temp File
+CRL_FILE="/tmp/check_crl.$NOW.crl"
+CRL_FILE_TXT="/tmp/check_crl.$NOW.txt"
+
+# Download CRL
+curl -s -o $CRL_FILE $URL
+
+# Convert PEM CRL to text
+openssl crl -noout -text -in $CRL_FILE -out $CRL_FILE_TXT &> /dev/null
+
+# If unable to convert to text attempt converting in DER format
+if [ "$?" == "1" ];
+then
+	openssl crl -inform DER -noout -text -in $CRL_FILE -out $CRL_FILE_TXT &> /dev/null
+	
+	if [ "$?" == "1" ];
+	then
+		echo "CRL UNKNOWN: Couldn't read CRL file."
+		exit 3
+	fi
+fi
+
+# Calculate time left in CRL
+NEXT_UPDATE=`sed -n 's/[[:space:]]*Next Update:[[:space:]]*\(.*\)/\1/p' $CRL_FILE_TXT`
+NEXT_UPDATE_SEC=`date -d "$NEXT_UPDATE" +%s`
+SECONDS=$(($NEXT_UPDATE_SEC-$NOW))
+MINUTES=$(($SECONDS/60))
+HOURS=$(($SECONDS/60/60))
+DAYS=$(($SECONDS/86400))
+
+COUNTDOWN=$(printf "%s Day(s) %s Hour(s) %s Minute(s) %s Second(s)\n" $(($SECONDS/86400)) $((($SECONDS/3600)%24)) $((($SECONDS/60)%60)) $(($SECONDS%60)))
+
+rm -rf $CRL_FILE
+rm -rf $CRL_FILE_TXT
+
+# OK
+if [ "$DAYS" -ge "$WARN_DAYS" ];
+then
+	echo "CRL OK: Expires in $COUNTDOWN."
+	exit 0
+fi
+
+# WARNING
+if [ "$DAYS" -gt "$CRIT_DAYS" -a "$DAYS" -lt "$WARN_DAYS" ];
+then
+	echo "CRL WARNING: Expires in $COUNTDOWN."
+	exit 1
+fi
+
+# CRITICAL
+if [ "$DAYS" -lt "$CRIT_DAYS" ];
+then
+	echo "CRL CRITICAL: Expires in $COUNTDOWN."
+	exit 2
+fi
+
+echo "CRL UNKNOWN: Couldn't read CRL file."
+exit 3
+
