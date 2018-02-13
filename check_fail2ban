@@ -1,0 +1,39 @@
+#!/bin/bash
+# example : check_fail2ban status sshd
+# Requiring to run f2b rootless or nagios with sudo privileges without password
+# visudo:
+# nagios ALL=NOPASSWD: /usr/bin/fail2ban-client
+                                                                                                                                                                                                                   
+# set to true if you need sudo
+SUDOING=true
+OPTIONS="jails"
+                                                                                                                                                                                                                   
+if $SUDOING
+        then
+                F2CLIENT="sudo /usr/bin/fail2ban-client"
+        else
+                F2CLIENT="/usr/bin/fail2ban-client"
+fi
+                                                                                                                                                                                                                   
+if !($F2CLIENT status) >> /dev/null
+        then
+                echo "Error running fail2ban as current user"
+                exit 3
+fi
+                                                                                                                                                                                                                   
+case $1 in
+jails)
+        $F2CLIENT status | grep -oe Jail.*
+        exit 0
+        ;;
+                                                                                                                                                                                                                   
+status)
+        $F2CLIENT status $2 | grep -oe Currently.*
+        exit 0
+        ;;
+                                                                                                                                                                                                                   
+*)
+        echo "Unknown option or not specified. Valid options are : $OPTIONS"
+        exit 3
+        ;;
+esac
